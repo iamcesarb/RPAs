@@ -241,7 +241,7 @@ def main(From, To):
                             "Critical Errors":["Language Around Pre-priced Pros and Pro Behavior","Other language","Payment Language"],
                             
                             "Informative":["Call Back Suggestions","Positive Sentiment","Season Upselling","Voicemail conversation with client",
-                                    "Voicemail more 30 secs non agent message","Voicemail more than 60 secs"],
+                                    "Voicemail more 30 secs non agent message","Voicemail more than 60 secs","Not sales", "Sales Angi"],
 
                             "Outliers":["Do not contact alert","Not interaction","Spanish calls","Voicemail","Wrong Number"],
                             "Powerful Phrases":["Powerful_Phrases"],
@@ -266,9 +266,12 @@ def main(From, To):
                             "Closing QA": ["Assumptive Language & Urgency","Call Control","Set a call back"],
                             "Compliance": ["Cross Selling & Up Selling","Legal Terms","Post Booking Script","Recorded line"],
                             "Critical Fail":["Dispo CallBack","Dispo connection issue","Dispo legal terms","Professionalism throughout the call"],
-                            "Objection Handling": ["Not Lead by offering a discount", "Reasoning for objections"],
+                            "Objection Handling": ["Not Lead by offering a discount", "Reasoning for objections", "Sell On Cancellation"],
                             "Product Knowledge": ["Negative Phrasing"],
-                            "Tone Rapport": ["Build Rapport","Confident tone","Did we greet the call properly","Set the agenda"]
+                            "Tone Rapport": ["Build Rapport","Confident tone","Did we greet the call properly","Set the agenda"],
+                            ### Categorias filtro scores 
+                            "Outcomes":['Do Not Contact', "Excessive Silence","Hang Up", "incoming calls", "Mono calls", "Voicemail-"]
+
                         }
                         
     }

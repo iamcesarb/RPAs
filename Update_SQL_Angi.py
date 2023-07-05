@@ -22,6 +22,7 @@ from sqlalchemy.types import BigInteger, String
 import numpy as np
 
 
+
 # %%
 def connect_DB():
     connection_string = (
@@ -64,8 +65,38 @@ def preprocessing_dfcm(dfcm):
 
 
     #-------------------------
+    outliers = {"Outliers":["Do not contact alert", "Not interaction", "Spanish calls", "Voicemail", "Wrong Number"],
+                            "Outcomes":['Do Not Contact', "Excessive Silence","Hang Up", "incoming calls", "Mono calls", "Voicemail-"]}
+
+    list_outliers_cat=[]
+
+    for key, values in outliers.items():
+        for value in values:
+            name=(key + '.' + value)
+            list_outliers_cat.append(name)
+            
+    # Create the new ouliers dataframe 
+    outliers_df = dfcm_tosql.loc[(dfcm_tosql[list_outliers_cat] == 1).any(axis=1)]
+
+    #Removes outliers from the original dataframe
+    dfcm_tosql = dfcm_tosql.loc[~(dfcm_tosql[list_outliers_cat] == 1).any(axis=1)]
+    
+
+    # Drop outliers
+    dfcm_tosql = dfcm_tosql.drop(dfcm_tosql.columns[dfcm_tosql.columns.str.contains("outliers", case=False)], axis=1)
+    dfcm_tosql = dfcm_tosql.drop(dfcm_tosql.columns[dfcm_tosql.columns.str.contains("outcomes", case=False)], axis=1)
+
+    #metadata
+    meta = ["Eureka ID", "Agent","Agent Group","ANI","Average Confidence","contact_id","Date","Date/Time","Direction","Disp_Name","Duration",
+                "Hold Time","Longest Silence","Percent Silence",
+                "Real Direction","Recorder ID","Silence Time","Skill name","skill_no","Tempo","To"]
+
+    outliers_cats_tosql = meta+list_outliers_cat
+
+    outliers_df = outliers_df[outliers_cats_tosql]
 
     scores_values = {'Positive':{
+                        '2' : ['Product Knowledge.Negative Phrasing'],
                         '3' :['Acknowledge Statement.Info - CUS about customer service',
                                 'Acknowledge Statement.Info - CUS about happiness guarantee',
                                 'Acknowledge Statement.Info - CUS about membership',
@@ -76,19 +107,18 @@ def preprocessing_dfcm(dfcm):
                                 'Closing QA.Call Control',
                                 'Closing QA.Set a call back',
                                 'Tone Rapport.Did we greet the call properly',
-                                'Tone Rapport.Set the agenda'],
+                                'Tone Rapport.Set the agenda',
+                                'Tone Rapport.Confident tone',
+                                'Objection Handling.Not Lead by offering a discount',
+                                'Objection Handling.Sell On Cancellation',
+                                'Objection Handling.Reasoning for objections'],
                         '4':["Compliance.Cross Selling & Up Selling",
                                 "Tone Rapport.Build Rapport"],
                         '5':["Compliance.Legal Terms",
                                 "Compliance.Post Booking Script"],
                         '6':["Compliance.Recorded line"]
                         
-                                },
-                'Negative':{
-                        '3' :['Objection Handling.Not Lead by offering a discount',
-                                'Objection Handling.Reasoning for objections',  ### Esperamos razón 
-                                'Tone Rapport.Confident tone'],
-                        '2' : ['Product Knowledge.Negative Phrasing']
+                                                      
                 },
                 'Critical errors':[ 'Critical Errors.Language Around Pre-priced Pros and Pro Behavior',
                                         'Critical Errors.Other language',
@@ -101,25 +131,79 @@ def preprocessing_dfcm(dfcm):
 
 
 
-    dfcm_tosql['Total Score'] = 0 
+
+
+    dfcm_tosql['Product Knowledge Score']=0
+    dfcm_tosql['Tone/ Rapport Score']=0
+    dfcm_tosql['Active Listening Score']=0
+    dfcm_tosql['Objection Handling Score']=0
+    dfcm_tosql['Closing Score']=0
+    dfcm_tosql['Compliance Score']=0
+    
+    #Positive cats
     for i in range (2,7):
-            try:
-                    for category in scores_values['Positive'][str(i)]:
-                            dfcm_tosql['Total Score']=dfcm_tosql['Total Score']+(dfcm_tosql[category]*i)
-            except:
-                    pass
-    for i in range (2,7):
-            try:
-                    for category in scores_values['Negative'][str(i)]:
-                            dfcm_tosql['Total Score']=dfcm_tosql['Total Score']-(dfcm_tosql[category]*i)
-            except:
-                    pass
+            
+        for category in scores_values['Positive'][str(i)]:
+            #Tone / Rapport
+            if 'Tone Rapport' in category:
+                dfcm_tosql['Tone/ Rapport Score']=dfcm_tosql['Tone/ Rapport Score']+(dfcm_tosql[category]*i)
+            if 'Active Listening' in category:
+                dfcm_tosql['Active Listening Score']=dfcm_tosql['Active Listening Score']+(dfcm_tosql[category]*i)
+            if 'Acknowledge Statement' in category:  #ojo on esta, porque el componente principal es en realidad Product knowledge
+                dfcm_tosql['Product Knowledge Score']=dfcm_tosql['Product Knowledge Score']+(dfcm_tosql[category]*i)
+            if 'Objection Handling' in category:
+                dfcm_tosql['Objection Handling Score']=dfcm_tosql['Objection Handling Score']+(dfcm_tosql[category]*i)
+            if 'Closing QA' in category:
+                #Aplicamos filtro de sales para la categoria correspondiente
+                if category == "Closing QA.Set a call back":
+                    dfcm_tosql['Closing Score']=dfcm_tosql['Closing Score']+(dfcm_tosql[category]*i).where(dfcm_tosql['Informative.Not sales']==1, other=dfcm_tosql['Closing Score']+i)
+                else:
+                    dfcm_tosql['Closing Score']=dfcm_tosql['Closing Score']+(dfcm_tosql[category]*i)
+            if 'Compliance' in category:
+                if (category == "Compliance.Cross Selling & Up Selling" or 
+                    category == "Compliance.Legal Terms" or 
+                    category == "Compliance.Post Booking Script"):
+                    
+                    
+                    dfcm_tosql['Compliance Score']=(dfcm_tosql['Compliance Score']+dfcm_tosql[category]*i).where(dfcm_tosql['Informative.Sales Angi']==1, other=dfcm_tosql['Compliance Score']+i)
+                
+                if category == "Compliance.Recorded line": #just for outbound skill name  it can be outbound or OB 
+                    dfcm_tosql['Compliance Score']=(dfcm_tosql['Compliance Score']+dfcm_tosql[category]*i).where(dfcm_tosql['Skill name'].str.contains(r'out|OB', flags=re.IGNORECASE, regex=True), other=dfcm_tosql['Compliance Score']+i)
+
+
+    #Negative cats
+    #for i in range (2,4):
+        
+    #    for category in scores_values['Negative'][str(i)]:
+    #        if 'Tone Rapport' in category:
+    #            dfcm_tosql['Tone/ Rapport Score']=dfcm_tosql['Tone/ Rapport Score']-(dfcm_tosql[category]*i)
+    #        if 'Objection Handling' in category:
+    #            dfcm_tosql['Objection Handling Score']=dfcm_tosql['Objection Handling Score']-(dfcm_tosql[category]*i)
+    #        if "Product Knowledge" in category:
+    #            dfcm_tosql['Product Knowledge Score']=dfcm_tosql['Product Knowledge Score']-(dfcm_tosql[category]*i)
+
+
+
+    dfcm_tosql['Product Knowledge %']=dfcm_tosql['Product Knowledge Score']/17*100
+    dfcm_tosql['Tone/ Rapport %']=dfcm_tosql['Tone/ Rapport Score']/13*100
+    dfcm_tosql['Active Listening %']=dfcm_tosql['Active Listening Score']/3*100
+    dfcm_tosql['Objection Handling %']=dfcm_tosql['Objection Handling Score']/9*100
+    dfcm_tosql['Closing %']=dfcm_tosql['Closing Score']/9*100
+    dfcm_tosql['Compliance %']=dfcm_tosql['Compliance Score']/20*100
+
+
+    dfcm_tosql['Total Score']= (    dfcm_tosql['Product Knowledge Score']+
+                                    dfcm_tosql['Tone/ Rapport Score']+
+                                    dfcm_tosql['Active Listening Score']+
+                                    dfcm_tosql['Objection Handling Score']+
+                                    dfcm_tosql['Closing Score']+
+                                    dfcm_tosql['Compliance Score'])
 
 
     for category in scores_values['Critical errors']:
        dfcm_tosql['Total Score']=np.where(dfcm_tosql[category]==1,0,dfcm_tosql['Total Score'])
        
-    dfcm_tosql['Total Score']=dfcm_tosql['Total Score'].apply(lambda x: float(x)/75*100)
+    dfcm_tosql['Total Score']=dfcm_tosql['Total Score'].apply(lambda x: float(x)/71*100)
 
 
 
@@ -224,11 +308,7 @@ def preprocessing_dfcm(dfcm):
 
     dfcm_tosql["Total Critical_errors"]=(dfcm_tosql['Critical Errors.Language Around Pre-priced Pros and Pro Behavior']+
                                             dfcm_tosql['Critical Errors.Payment Language'])
-    
-    dfcm_tosql["Total Outliers"]=(dfcm_tosql['Outliers.Not interaction']+
-                                            dfcm_tosql['Outliers.Voicemail']+
-                                            dfcm_tosql['Outliers.Wrong Number'])
-       
+
 
 
     dfcm_tosql["Sale"]=np.where(dfcm_tosql["Disp_Name"].isin(['Sale','Sale - One Time',
@@ -268,7 +348,7 @@ def preprocessing_dfcm(dfcm):
     #Separate into Category and component
     df3[["Folder",'Category','Component']] = df3['Category'].str.split('.', expand = True)
     
-    return df3, dfcm_tosql
+    return df3, dfcm_tosql, outliers_df
 
 
 # %%
@@ -276,7 +356,7 @@ def remove_duplicates_SQL():
 
     connection_string = (
         'Driver={ODBC Driver 17 for SQL Server};'
-        'SERVER=TPCCP-DB04\SCBACK;'
+        'SERVER=TPCCP-DB09\SCNEAR;'
         'Database=Analytics;'
         'Trusted_Connection=yes;'
     )
@@ -330,12 +410,13 @@ def remove_duplicates_SQL():
                             DELETE FROM cte
                             WHERE row_num > 1;
                     """
-        cursor.execute(remove_dup)
-        cnxn.commit()
-        print(f"removed duplicates from: {table}")
+        #cursor.execute(remove_dup)
+        #cnxn.commit()
+        #print(f"removed duplicates from: {table}")
 
 
-    for table in ["tbAngiDFCallminer"]:
+
+    for table in ["tbAngiDFCallminer","tbAngiOutliers","tbAngiMelted"]:
         remove_dup=f"""
                     WITH cte AS (
                                 SELECT * ,
@@ -392,12 +473,13 @@ def main(date_dfcm:str):
     
     dfcm=read_dfcm2(date_dfcm)
     #contact_history=upload_contact_history(day+1)
-    df3,dfcm_tosql=preprocessing_dfcm(dfcm)
+    df3,dfcm_tosql, dfcm_tosql_ouliers=preprocessing_dfcm(dfcm)
     dfcm_tosql.to_sql("tbAngiDFCallminer",chunksize=5000,if_exists="append", con=engine, index=False)
     print("done AngiDFCallminer")
     df3.to_sql("tbAngiMelted",chunksize=5000,if_exists="append", con=engine, index=False)
     print("done AngiMelted")
-    
+    dfcm_tosql_ouliers.to_sql("tbAngiOutliers",chunksize=5000,if_exists="append", con=engine, index=False)
+    print("done AngiOutliers")
     remove_duplicates_SQL()
         
 if __name__=="__main__":
